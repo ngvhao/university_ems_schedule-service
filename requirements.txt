@@ -1,0 +1,9 @@
+fastapi
+mangum
+pydantic
+sqlalchemy 
+asyncpg
+databases
+jose
+psycopg2
+jwt

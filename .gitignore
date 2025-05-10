@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+.env.*
+
+# Virtual environment
+venv/
+.venv/
+
+# Serverless and deployment
+.serverless/
+.aws-sam/
+
+# Local development
+*.log
+*.sqlite3
+
+# VSCode
+.vscode/
+
+# macOS / Linux / Windows system files
+.DS_Store
+Thumbs.db

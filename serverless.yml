@@ -1,0 +1,38 @@
+service: university-ems-schedule-service
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: ap-southeast-1
+  environment:
+    DEBUG: ${env:DEBUG, 0}
+    STAGE: ${env:STAGE, "dev"}
+    DB_HOST: ${env:DB_HOST}
+    DB_PORT: ${env:DB_PORT}
+    DB_USER_NAME: ${env:DB_USER_NAME}
+    DB_PASSWORD: ${env:DB_PASSWORD}
+    DB_NAME: ${env:DB_NAME}
+
+functions:
+  api:
+    handler: app.main.handler
+    events:
+      - http:
+          method: ANY
+          path: /
+      - http:
+          method: ANY
+          path: '{proxy+}'
+
+plugins:
+  - serverless-python-requirements
+  - serverless-offline
+
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    layer: true
+  serverless-offline:
+    httpPort: 3000
+
