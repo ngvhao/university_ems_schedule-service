@@ -8,8 +8,6 @@ from app.database import get_db
 from databases import Database
 import logging
 
-from app.services.user import UserService
-
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -55,7 +53,8 @@ PUBLIC_PATHS = [
     "/docs",
     "/redoc",
     "/openapi.json",
-    "/testing-db"
+    "/testing-db",
+    "/schedules/calculating"
 ]
 
 app.add_middleware(AuthMiddleware, public_paths=PUBLIC_PATHS)
