@@ -1,4 +1,5 @@
 service: university-ems-schedule-service
+useDotenv: true
 
 provider:
   name: aws
@@ -23,12 +24,12 @@ functions:
           path: /
       - http:
           method: ANY
-          path: '{proxy+}'
+          path: "{proxy+}"
 
 plugins:
   - serverless-python-requirements
   - serverless-offline
-
+  - serverless-dotenv-plugin
 
 custom:
   pythonRequirements:
@@ -36,4 +37,3 @@ custom:
     layer: true
   serverless-offline:
     httpPort: 3000
-

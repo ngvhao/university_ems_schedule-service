@@ -7,3 +7,5 @@ databases
 jose
 psycopg2
 jwt
+dotenv
+uvicorn
