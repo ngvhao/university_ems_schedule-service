@@ -33,7 +33,6 @@ plugins:
 
 custom:
   pythonRequirements:
-    dockerizePip: true
     layer: true
   serverless-offline:
     httpPort: 3000

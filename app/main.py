@@ -2,11 +2,14 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mangum import Mangum
+from sqlalchemy import text
 from app.middleware.auth_middleware import AuthMiddleware
 from app.routes import schedule
 from app.database import get_db
-from databases import Database
+from sqlalchemy.ext.asyncio import AsyncSession
 import logging
+
+from app.services.class_weekly_schedule import ClassWeeklyScheduleService
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +65,14 @@ app.add_middleware(AuthMiddleware, public_paths=PUBLIC_PATHS)
 app.include_router(schedule.router)
 
 @app.get("/testing-db")
-async def root(db: Database = Depends(get_db)):
+async def root(db: AsyncSession = Depends(get_db)):
     try:
-        result = await db.fetch_one("SELECT 1")
+        result = await db.execute(text("SELECT 1"))
+        # value = result.scalar()  
         logger.debug("Successfully tested database connection")
-        return {"message": "Welcome to the API", "db_test": result[0]}
+        result_2 = await ClassWeeklyScheduleService.getClassWeeklySchedule(1, db)
+        print(result_2)
+        return {"message": "Welcome to the API", "db_test": result_2}
     except Exception as e:
         logger.error(f"Error in root endpoint: {str(e)}")
         return {"error": str(e)}

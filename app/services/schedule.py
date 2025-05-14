@@ -1,14 +1,15 @@
-from datetime import date, timedelta, time as time_obj # Thêm time_obj
-from typing import Any, Dict, List, Optional, Tuple, Union, Literal # Thêm Literal, Union
-
+from datetime import date, timedelta 
+from typing import Any, Dict, List, Optional, Tuple, Union, Literal 
 from fastapi import HTTPException
 from ortools.sat.python import cp_model
-from pydantic import BaseModel, Field, field_validator, ValidationInfo # Bỏ validator không dùng
+from pydantic import BaseModel, Field, field_validator, ValidationInfo  
 import logging
 import math
 import time
+from app.utils.constants import SOLVERTIMELIMITSECONDS
+from app.utils.enums import EObjectStrategy, ERoomType
 
-# --- Helper Functions (Cần bạn định nghĩa chi tiết) ---
+# --- Helper Functions  ---
 def get_semester_week_and_day_indices(
     target_date: date, semester_start_date: date, days_of_week_map: Dict[str, int]
 ) -> Tuple[Optional[int], Optional[int]]:
@@ -22,81 +23,69 @@ def get_semester_week_and_day_indices(
     
     delta_days = (target_date - semester_start_date).days
     semester_week_index = delta_days // 7
-    day_in_week_iso = target_date.isoweekday() # Monday is 1 and Sunday is 7
-
-    # Ánh xạ isoweekday (1-7) sang day_name (ví dụ: "MONDAY") rồi sang day_index
-    # Ví dụ: days_of_week_map = {"MONDAY": 0, "TUESDAY": 1, ...}
-    # Cần có một map từ isoweekday (1-7) sang tên ngày trong days_of_week_map
-    # ví dụ: iso_to_custom_day_name = {1: "MONDAY", 2: "TUESDAY", ...}
-    
-    # Đây là ví dụ, bạn cần điều chỉnh cho khớp với days_of_week_map của bạn
+    day_in_week_iso = target_date.isoweekday()  
     day_name_map_from_iso = {
         1: "MONDAY", 2: "TUESDAY", 3: "WEDNESDAY", 4: "THURSDAY",
-        5: "FRIDAY", 6: "SATURDAY", 7: "SUNDAY" # Điều chỉnh nếu days của bạn khác
+        5: "FRIDAY", 6: "SATURDAY", 7: "SUNDAY"
     }
     target_day_name = day_name_map_from_iso.get(day_in_week_iso)
     
     if target_day_name and target_day_name in days_of_week_map:
         day_index = days_of_week_map[target_day_name]
         return semester_week_index, day_index
-    return semester_week_index, None # Trả về tuần nhưng không có ngày nếu ngày không trong danh sách
+    return semester_week_index, None 
 
 # --- DTOs for Input ---
-class CourseSchedulingInfoDTO(BaseModel): # Giữ nguyên từ lần trước
+class CourseSchedulingInfoDTO(BaseModel):
     courseId: int
     credits: int = Field(gt=0)
-    totalSemesterSessions: int = Field(gt=0) # Tổng số buổi cần dạy cho cả môn học
-    registeredStudents: int = Field(ge=0)    # Tổng số SV đăng ký môn này
+    totalSemesterSessions: int = Field(gt=0)  
+    registeredStudents: int = Field(ge=0)    
     potentialLecturerIds: List[int]
 
-class LecturerInputDTO(BaseModel): # Đổi tên từ LecturerDTO để tránh nhầm lẫn
-    lecturerId: int # Đã là ID thực, không phải userId nữa
-    # departmentId: int # Có thể không cần thiết cho CP nếu không dùng ràng buộc khoa
-    # academicRank: Optional[str] = None
-    # specialization: Optional[str] = None
-    # isHeadDepartment: bool = False
-    # teachingCourses: List[int] # Thông tin này nên nằm trong CourseSchedulingInfoDTO.potentialLecturerIds
-
-class RoomInputDTO(BaseModel): # Đổi tên
-    roomId: int # ID thực của phòng
-    roomNumber: str # Vẫn giữ để tham chiếu
+class LecturerInputDTO(BaseModel):  
+    lecturerId: int 
+class RoomInputDTO(BaseModel):  
+    id: int 
+    roomNumber: str  
     capacity: int
-    # roomType: str = "CLASSROOM" # Tạm bỏ qua roomType
+    roomType: str = ERoomType.CLASSROOM
 
-class TimeSlotInputDTO(BaseModel): # Đổi tên
-    timeSlotId: int # ID thực
-    # startTime: str # Không cần cho CP nếu chỉ dùng shift/ID
-    # endTime: str
-    shift: int # Hoặc một định danh ca duy nhất nếu không phải số nguyên
+class TimeSlotInputDTO(BaseModel): 
+    id: int  
+    shift: int  
+
+class ExistingScheduleRecord(BaseModel):
+    roomId: int
+    lecturerId: int
+    timeSlotId: int  
+    dayOfWeek: str   
+    startDate: str  
+    endDate: str
 
 class OccupiedResourceSlotDTO(BaseModel):
     resourceType: Literal['room', 'lecturer']
-    resourceId: Union[int, str]  # roomId (int) hoặc roomNumber (str), hoặc lecturerId (int)
-    date: str # YYYY-MM-DD
-    timeSlotId: int # ID thực của TimeSlot, hoặc shift (int) nếu dùng shift
+    resourceId: Union[int, str]  
+    date: str
+    timeSlotId: int 
 
 class ScheduleInputDTO(BaseModel):
-    semesterId: int # ID của học kỳ đang xếp
-    semesterStartDate: str # YYYY-MM-DD
-    semesterEndDate: str # YYYY-MM-DD
-    
+    semesterId: int  
+    semesterStartDate: str
+    semesterEndDate: str
     coursesToSchedule: List[CourseSchedulingInfoDTO]
     lecturers: List[LecturerInputDTO]
     rooms: List[RoomInputDTO]
-    timeSlots: List[TimeSlotInputDTO] # Danh sách các ca học trong ngày
-    
-    daysOfWeek: List[str] = Field(default_factory=lambda: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"]) # Các ngày có lịch học
-    exceptionDates: List[str] = Field(default_factory=list) # Danh sách ngày nghỉ YYYY-MM-DD
+    timeSlots: List[TimeSlotInputDTO] 
+    daysOfWeek: List[str] = Field(default_factory=lambda: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"])  
+    exceptionDates: List[str] = Field(default_factory=list)  
     occupiedSlots: List[OccupiedResourceSlotDTO] = Field(default_factory=list)
+    existingSchedules: Optional[List[ExistingScheduleRecord]] = Field(default_factory=list)
+    groupSizeTarget: int = Field(default=60, gt=0) 
+    maxSessionsPerWeekAllowed: int = Field(default=3, gt=0)
+    solverTimeLimitSeconds: Optional[float] = Field(default=SOLVERTIMELIMITSECONDS, gt=0)
+    objectiveStrategy: Optional[str] = EObjectStrategy.BALANCE_LOAD_AND_EARLY_START  
     
-    groupSizeTarget: int = Field(default=60, gt=0) # Sỉ số mục tiêu cho mỗi nhóm
-    maxSessionsPerWeekAllowed: int = Field(default=3, gt=0) # Số buổi tối đa/tuần mà một môn có thể học (để tính sessionsPerWeek)
-    
-    solverTimeLimitSeconds: float = Field(default=60.0, gt=0)
-    objectiveStrategy: str = "BALANCE_LOAD_AND_EARLY_START" # Các lựa chọn: "FEASIBLE_ONLY", "BALANCE_LOAD", "EARLY_START", "BALANCE_LOAD_AND_EARLY_START"
-    
-    # Các trường cũ có thể không cần thiết nữa hoặc đã được thay thế
-    # penaltyWeightFixedDayShiftViolation: int = 10000 # Sẽ bỏ nếu lịch cố định là hard constraint
 
     @field_validator('semesterStartDate', 'semesterEndDate', 'exceptionDates', mode='before')
     def validate_date_format_fields(cls, v: Any, info: ValidationInfo) -> Any:
@@ -114,7 +103,7 @@ class ScheduleInputDTO(BaseModel):
                 except ValueError:
                     raise ValueError(f"Incorrect date format for an item in {field_name}, should be YYYY-MM-DD")
             return validated_dates
-        else: # semesterStartDate, semesterEndDate
+        else: 
             if not isinstance(v, str):
                 raise ValueError(f"Incorrect type for {field_name}, expected string for date.")
             try:
@@ -127,9 +116,9 @@ class ScheduleInputDTO(BaseModel):
     def end_date_after_start_date(cls, v_end_date: str, info: ValidationInfo) -> str:
         if info.data and 'semesterStartDate' in info.data:
             start_str = info.data.get('semesterStartDate')
-            if start_str: # Đã được validate ở trên
+            if start_str: 
                 start_date_obj = date.fromisoformat(start_str)
-                end_date_obj = date.fromisoformat(v_end_date) # v_end_date cũng đã được validate
+                end_date_obj = date.fromisoformat(v_end_date) 
                 if end_date_obj <= start_date_obj:
                     raise ValueError("semesterEndDate must be after semesterStartDate")
         return v_end_date
@@ -138,21 +127,17 @@ class LecturerLoadDTO(BaseModel):
     lecturerId: int
     sessionsAssigned: int
 
-# (Các DTO đầu vào và cấu trúc nội bộ giữ nguyên như lần trước)
 
-# --- DTOs for Output (Cấu trúc lại) ---
+# --- DTOs for Output ---
 
-class WeeklyScheduleDetailDTO(BaseModel): # Lịch chi tiết cho một buổi cố định hàng tuần
-    # sessionSequenceInWeek: int # Buổi thứ mấy trong tuần (1, 2, ...) - có thể bỏ nếu dayOfWeek/timeSlotId đã đủ
-    dayOfWeek: str # EDayOfWeek
-    timeSlotId: int # ID của TimeSlot
-    roomId: int # ID của Phòng
-    # lecturerId: int # Giảng viên đã có ở cấp ClassGroupScheduledDTO
+class WeeklyScheduleDetailDTO(BaseModel):  
+    dayOfWeek: str 
+    timeSlotId: int 
+    roomId: int  
 
 class ClassGroupScheduledDTO(BaseModel): 
     groupNumber: int
-    maxStudents: int # Sỉ số tối đa của nhóm này (ví dụ: groupSizeTarget)
-    # registeredStudents: int # Bỏ, đã chuyển lên CourseScheduledDTO
+    maxStudents: int 
     lecturerId: int
     groupStartDate: str 
     groupEndDate: str   
@@ -162,32 +147,25 @@ class ClassGroupScheduledDTO(BaseModel):
 
 class CourseScheduledDTO(BaseModel): 
     courseId: int
-    totalRegisteredStudents: int # Tổng số SV đăng ký môn này
-    totalSessionsForCourse: int  # Tổng số buổi cần dạy cho môn này (từ input)
-    # courseName: str 
+    totalRegisteredStudents: int 
+    totalSessionsForCourse: int 
     scheduledClassGroups: List[ClassGroupScheduledDTO]
 
 
-class FinalScheduleResultDTO(BaseModel): # Thay thế ScheduleResultDTO cũ
+class FinalScheduleResultDTO(BaseModel): 
     semesterId: int
-    semesterStartDate: str # Thêm thông tin học kỳ vào output
+    semesterStartDate: str  
     semesterEndDate: str
-    
-    scheduledCourses: List[CourseScheduledDTO] # Danh sách các môn học đã được xếp lịch
-    
+    scheduledCourses: List[CourseScheduledDTO] 
     lecturerLoad: List[LecturerLoadDTO]
     loadDifference: Optional[int] = None
-    
-    totalOriginalSessionsToSchedule: int # Tổng số buổi học ban đầu cần xếp
-    # totalSemesterWeekSlotsAvailable: int # Slot trong 1 tuần mẫu
-    # totalActiveSemesterWeeks: int # Tổng số tuần học kỳ có hoạt động
-    
+    totalOriginalSessionsToSchedule: int  
     solverDurationSeconds: float
     solverStatus: str 
     solverMessage: Optional[str] = None
 
-# --- Internal Helper Structures (Sẽ điều chỉnh lại) ---
-class CoursePropertiesInternal: # Thay thế ProcessedCourseProps
+# --- Internal Helper Structures ---
+class CoursePropertiesInternal: 
     def __init__(self, course_dto: CourseSchedulingInfoDTO, sessions_p_week: int, total_course_weeks: int):
         self.courseId = course_dto.courseId
         self.credits = course_dto.credits
@@ -195,9 +173,9 @@ class CoursePropertiesInternal: # Thay thế ProcessedCourseProps
         self.registeredStudents = course_dto.registeredStudents
         self.potentialLecturerIds = course_dto.potentialLecturerIds
         self.sessionsPerWeek = sessions_p_week
-        self.totalCourseWeeks = total_course_weeks # Số tuần thực tế môn này sẽ học
+        self.totalCourseWeeks = total_course_weeks  
 
-class SchedulingGroupInternal: # Thay thế ClassGroupInternal
+class SchedulingGroupInternal: 
     def __init__(self, group_id_tuple: Tuple[int, int, int], # (courseId, semesterId, groupNumber)
                  course_props: CoursePropertiesInternal, 
                  actual_students_in_group: int):
@@ -205,28 +183,23 @@ class SchedulingGroupInternal: # Thay thế ClassGroupInternal
         self.course_props = course_props
         self.actual_students_in_group = actual_students_in_group
         
-        self.sessions_to_schedule: List[SessionInternal] = [] # Các buổi học cần xếp
-        
-        # Biến CP
-        self.start_semester_week_var: Optional[cp_model.IntVar] = None # Tuần bắt đầu học (0-based)
-        # Các (thứ, ca) cố định cho N buổi học/tuần của nhóm này
+        self.sessions_to_schedule: List[SessionInternal] = []  
+        self.start_semester_week_var: Optional[cp_model.IntVar] = None 
         self.fixed_weekly_day_vars: List[Optional[cp_model.IntVar]] = []
         self.fixed_weekly_shift_vars: List[Optional[cp_model.IntVar]] = []
-        # Phòng cố định cho mỗi buổi trong tuần (nếu 1 buổi/tuần có nhiều session, chúng cùng phòng)
         self.fixed_weekly_room_vars: List[Optional[cp_model.IntVar]] = []
-        # Giảng viên cố định cho cả nhóm
         self.assigned_lecturer_var: Optional[cp_model.IntVar] = None
 
 
     def __repr__(self):
         return (f"SchedGrp(C{self.id_tuple[0]}, S{self.id_tuple[1]}, G{self.id_tuple[2]}, Stud={self.actual_students_in_group})")
 
-class SessionInternal: # Thay thế ClassSessionInternal, nhưng giờ nó đại diện cho một "slot" trong lịch trình
+class SessionInternal: 
     def __init__(self, 
                  group: SchedulingGroupInternal, 
-                 course_week_num: int, # Tuần thứ mấy của môn học (1-based)
-                 session_in_course_week_num: int, # Buổi học thứ mấy trong tuần của môn học (1-based)
-                 overall_session_seq_num: int): # Số thứ tự tổng thể của buổi học này cho môn đó
+                 course_week_num: int, 
+                 session_in_course_week_num: int,  
+                 overall_session_seq_num: int): 
         
         self.group = group
         self.course_week_number = course_week_num
@@ -236,15 +209,12 @@ class SessionInternal: # Thay thế ClassSessionInternal, nhưng giờ nó đạ
         self.id_str = (f"s_c{group.id_tuple[0]}_g{group.id_tuple[2]}"
                        f"_cw{course_week_num}_siw{session_in_course_week_num}")
         
-        # Biến CP chính cho session này
-        self.assigned_global_slot_var: Optional[cp_model.IntVar] = None # Index của slot [0, num_total_semester_slots-1]
+        self.assigned_global_slot_var: Optional[cp_model.IntVar] = None  
 
-        # Các biến phụ trợ được suy ra từ assigned_global_slot_var
-        self.assigned_semester_week_idx_var: Optional[cp_model.IntVar] = None # Tuần của học kỳ (0-based)
-        self.assigned_day_idx_var: Optional[cp_model.IntVar] = None         # Thứ trong tuần (0-based)
-        self.assigned_shift_idx_var: Optional[cp_model.IntVar] = None       # Ca trong ngày (0-based)
-        self.assigned_room_idx_var: Optional[cp_model.IntVar] = None        # Phòng được gán (0-based)
-        # Lecturer được lấy từ group.assigned_lecturer_var
+        self.assigned_semester_week_idx_var: Optional[cp_model.IntVar] = None 
+        self.assigned_day_idx_var: Optional[cp_model.IntVar] = None          
+        self.assigned_shift_idx_var: Optional[cp_model.IntVar] = None     
+        self.assigned_room_idx_var: Optional[cp_model.IntVar] = None 
 
     def __repr__(self): return self.id_str
 
@@ -252,10 +222,10 @@ class ScheduleService:
     @staticmethod
     def _get_sessions_per_week(
         total_semester_sessions: int, 
-        total_semester_weeks_available: int, # Tổng số tuần có thể sử dụng trong học kỳ
+        total_semester_weeks_available: int,  
         max_sessions_per_week_allowed: int, 
         course_id_for_log: int,
-        credits: Optional[int] # Credits có thể vẫn hữu ích cho một số logic khởi tạo nếu cần
+        credits: Optional[int] 
     ) -> Tuple[int, int]:
         logger = logging.getLogger(f"{ScheduleService.__module__}.{ScheduleService.__name__}._get_sessions_per_week")
 
@@ -265,20 +235,18 @@ class ScheduleService:
             logger.error(f"C{course_id_for_log}: total_semester_weeks_available is 0 or negative. Cannot schedule.")
             raise ValueError(f"Course C{course_id_for_log}: Not enough semester weeks available (0 or less).")
 
-        current_sessions_per_week = 1 # Ưu tiên giãn lịch, bắt đầu với 1 buổi/tuần
+        current_sessions_per_week = 1  
         
         while current_sessions_per_week <= max_sessions_per_week_allowed:
             calculated_total_weeks_for_course = math.ceil(total_semester_sessions / current_sessions_per_week)
             
             if calculated_total_weeks_for_course <= total_semester_weeks_available:
-                # Tìm thấy số buổi/tuần phù hợp để giãn lịch
                 logger.info(f"C{course_id_for_log}: TotalSessions={total_semester_sessions}, Credits={credits}, "
                             f"Selected Sessions/Week={current_sessions_per_week} (to spread out), "
                             f"Calculated TotalWeeks={calculated_total_weeks_for_course} (within {total_semester_weeks_available} available weeks)")
                 return current_sessions_per_week, calculated_total_weeks_for_course
             
             if current_sessions_per_week == max_sessions_per_week_allowed:
-                # Đã thử đến max_sessions_per_week_allowed mà vẫn không đủ tuần
                 break 
             
             current_sessions_per_week += 1
@@ -315,8 +283,8 @@ class ScheduleService:
             lecturer_idx_to_id = {i: l.lecturerId for i, l in enumerate(input_dto.lecturers)}
             num_lecturers = len(input_dto.lecturers)
 
-            room_id_to_idx = {r.roomId: i for i, r in enumerate(input_dto.rooms)}
-            room_idx_to_id = {i: r.roomId for i, r in enumerate(input_dto.rooms)}
+            room_id_to_idx = {r.id: i for i, r in enumerate(input_dto.rooms)}
+            room_idx_to_id = {i: r.id for i, r in enumerate(input_dto.rooms)}
             room_capacities_by_idx = [r.capacity for r in input_dto.rooms] # Theo index
             num_rooms = len(input_dto.rooms)
             if num_rooms == 0:
@@ -324,8 +292,8 @@ class ScheduleService:
 
             # Sử dụng TimeSlotInputDTO.shift để làm key nếu nó là duy nhất, hoặc TimeSlotInputDTO.timeSlotId
             # Giả sử timeSlotId là duy nhất và dùng nó
-            timeslot_id_to_idx = {ts.timeSlotId: i for i, ts in enumerate(input_dto.timeSlots)}
-            timeslot_idx_to_id = {i: ts.timeSlotId for i, ts in enumerate(input_dto.timeSlots)}
+            timeslot_id_to_idx = {ts.id: i for i, ts in enumerate(input_dto.timeSlots)}
+            timeslot_idx_to_id = {i: ts.id for i, ts in enumerate(input_dto.timeSlots)}
             num_shifts_per_day = len(input_dto.timeSlots)
             if num_shifts_per_day == 0:
                 raise ValueError("No time slots provided.")
@@ -440,32 +408,11 @@ class ScheduleService:
             for smw_idx in range(total_calendar_weeks): # 0-based semester week index
                 current_week_start_date = semester_start_date_obj + timedelta(weeks=smw_idx)
                 for d_idx, day_name in day_idx_to_name.items(): # 0-based day index
-                    # Tính ngày cụ thể
-                    # Cần logic để map day_name ("MONDAY") sang timedelta từ đầu tuần.
-                    # Giả sử semester_start_date là Thứ 2, và daysOfWeek là ["MONDAY", "TUESDAY", ...]
-                    # For simplicity, assume daysOfWeek is contiguous from semester_start_date's day.
-                    # This needs a robust way to get date from (smw_idx, d_idx)
-                    
-                    # Ngày hiện tại trong vòng lặp
-                    # current_date_in_loop = ... # Cần hàm tính ngày từ (smw_idx, d_idx)
-                    # Ví dụ đơn giản hóa, nếu input_dto.daysOfWeek bắt đầu từ ngày của semester_start_date_obj:
-                    # (Cần kiểm tra ngày này có nằm trong khoảng semester_end_date_obj không)
-                    
-                    # Để tính ngày cụ thể cho từng slot:
-                    # Cần một cách ánh xạ day_name (MONDAY, TUESDAY) sang số ngày offset từ đầu tuần (ví dụ: MONDAY=0, TUESDAY=1)
-                    # Dựa trên `input_dto.daysOfWeek`.
-                    # Ví dụ, nếu `input_dto.daysOfWeek = ["MONDAY", "TUESDAY", ...]` thì `day_offset_map = {"MONDAY":0, "TUESDAY":1}`
-
                     # Cần kiểm tra ngày hiện tại có nằm trong khoảng [semester_start_date_obj, semester_end_date_obj] không
                     # Và ngày đó có phải là ngày trong input_dto.daysOfWeek không
                     
                     date_for_current_day_slot = current_week_start_date + timedelta(days=d_idx) # Đây là giả định ngày đầu tuần là ngày đầu của d_idx=0
-                                                                                                # Cần chính xác hơn dựa trên ngày đầu tuần thực tế
                     
-                    # ĐOẠN NÀY CẦN CHÚ Ý KỸ ĐỂ TÍNH NGÀY CỤ THỂ CHÍNH XÁC CHO (smw_idx, d_idx)
-                    # Nên lặp qua từng ngày từ semester_start_date_obj đến semester_end_date_obj
-                    # rồi xác định (smw_idx, d_idx) cho ngày đó.
-
             # Cách tiếp cận tốt hơn để tạo global_slot_map và xử lý ngày nghỉ:
             active_slot_details_list: List[Tuple[int, int, int]] = [] # (smw_idx, day_idx, shift_idx)
             date_to_swk_day_map: Dict[date, Tuple[int,int]] = {} # Ánh xạ ngày cụ thể sang (tuần, ngày index)
@@ -502,6 +449,73 @@ class ScheduleService:
             occupied_lecturer_intervals_data: List[Tuple[int, int]] = [] # (lecturer_idx, global_slot_idx)
             occupied_room_intervals_data: List[Tuple[int, int]] = []     # (room_idx, global_slot_idx)
 
+            logger.info(f"Processing {len(input_dto.existingSchedules)} existing schedule records for occupied slots...")
+            for existing_record in input_dto.existingSchedules:
+                try:
+                    record_start_obj = date.fromisoformat(existing_record.startDate)
+                    record_end_obj = date.fromisoformat(existing_record.endDate)
+                    
+                    occupied_day_name = existing_record.dayOfWeek # Ví dụ "MONDAY"
+                    if occupied_day_name not in day_name_to_idx:
+                        logger.warning(f"Day '{occupied_day_name}' from existing schedule not in current semester's daysOfWeek. Skipping record: {existing_record.dict()}")
+                        continue
+
+                    occupied_day_idx_in_week = day_name_to_idx[occupied_day_name] # 0-based index for the day of week
+                    occupied_timeslot_idx = timeslot_id_to_idx.get(existing_record.timeSlotId)
+                    
+                    if occupied_timeslot_idx is None:
+                        logger.warning(f"TimeSlotId {existing_record.timeSlotId} from existing schedule not found. Skipping record: {existing_record.dict()}")
+                        continue
+
+                    current_date_iter = record_start_obj
+                    while current_date_iter <= record_end_obj:
+                        # Chỉ xử lý nếu ngày này nằm trong khoảng học kỳ hiện tại VÀ là ngày được chỉ định trong tuần
+                        # (ví dụ: nếu record.dayOfWeek là MONDAY, chỉ xử lý các ngày Thứ Hai)
+                        
+                        # get_semester_week_and_day_indices sẽ trả về (None,None) nếu ngày không hợp lệ hoặc ngoài học kỳ
+                        iter_smw_idx, iter_day_idx = get_semester_week_and_day_indices(
+                            current_date_iter, semester_start_date_obj, day_name_to_idx
+                        )
+
+                        if iter_smw_idx is not None and iter_day_idx == occupied_day_idx_in_week:
+                            # Ngày này là ngày mục tiêu (ví dụ, Thứ Hai) và nằm trong học kỳ
+
+                            # Kiểm tra xem ngày này có phải ngày nghỉ không
+                            if current_date_iter.strftime("%Y-%m-%d") in input_dto.exceptionDates:
+                                current_date_iter += timedelta(days=1) # Chuyển sang ngày tiếp theo để tìm ngày dayOfWeek tiếp theo
+                                continue
+
+                            # Tìm global_slot_idx cho (iter_smw_idx, iter_day_idx, occupied_timeslot_idx)
+                            global_slot_idx_for_occ = details_to_global_slot.get((iter_smw_idx, iter_day_idx, occupied_timeslot_idx))
+
+                            if global_slot_idx_for_occ is not None: # Slot này là một active slot
+                                # Phòng bị chiếm
+                                r_idx_occ = room_id_to_idx.get(existing_record.roomId)
+                                if r_idx_occ is not None:
+                                    occupied_room_intervals_data.append((r_idx_occ, global_slot_idx_for_occ))
+                                else:
+                                    logger.warning(f"RoomId {existing_record.roomId} from existing schedule not found in current room list.")
+                                
+                                # Giảng viên bị chiếm
+                                l_idx_occ = lecturer_id_to_idx.get(existing_record.lecturerId)
+                                if l_idx_occ is not None:
+                                    occupied_lecturer_intervals_data.append((l_idx_occ, global_slot_idx_for_occ))
+                                else:
+                                    logger.warning(f"LecturerId {existing_record.lecturerId} from existing schedule not found in current lecturer list.")
+                        
+                        # Chuyển đến ngày tiếp theo để kiểm tra, hoặc nhảy 1 tuần nếu muốn tối ưu hơn
+                        # Để đơn giản và chính xác, cứ đi từng ngày rồi kiểm tra ngày trong tuần
+                        current_date_iter += timedelta(days=1)
+
+                except ValueError as ve_date:
+                    logger.warning(f"Date parsing error for existing schedule record: {ve_date}. Skipping: {existing_record.dict()}")
+                except Exception as e_rec:
+                    logger.error(f"Unexpected error processing existing schedule record: {e_rec}. Record: {existing_record.dict()}", exc_info=True)
+
+            logger.info(f"After processing existingSchedules: {len(occupied_room_intervals_data)} occupied room slots and "
+                        f"{len(occupied_lecturer_intervals_data)} occupied lecturer slots for NoOverlap.")
+
+            logger.info(f"Processing {len(input_dto.occupiedSlots)} specific occupied slots...")
             for occ_slot in input_dto.occupiedSlots:
                 try:
                     occ_date_obj = date.fromisoformat(occ_slot.date)
@@ -928,26 +942,24 @@ class ScheduleService:
                     final_message = "Feasible/Optimal solution found, but no courses were scheduled (check input or constraints)."
 
 
-            return FinalScheduleResultDTO( # Sử dụng DTO mới
+            return FinalScheduleResultDTO( 
                 semesterId=input_dto.semesterId,
                 semesterStartDate=input_dto.semesterStartDate,
                 semesterEndDate=input_dto.semesterEndDate,
                 scheduledCourses=output_scheduled_courses,
-                lecturerLoad=output_lecturer_loads, # output_lecturer_loads đã được đổi tên
-                loadDifference=output_load_difference, # output_load_difference đã được đổi tên
+                lecturerLoad=output_lecturer_loads,  
+                loadDifference=output_load_difference, 
                 totalOriginalSessionsToSchedule=total_sessions_count, 
                 solverDurationSeconds=duration_seconds,
                 solverStatus=solution_status_name,
-                solverMessage=final_message # final_message đã được tính toán
+                solverMessage=final_message 
             )
 
-        # ... (phần except blocks giữ nguyên) ...
-
-        except HTTPException: # Re-raise HTTPExceptions để FastAPI xử lý
+        except HTTPException:  
             raise
-        except ValueError as ve: # Bắt các lỗi ValueError nghiệp vụ
-            logger.error(f"Business logic ValueError: {str(ve)}", exc_info=False) # Không cần stacktrace cho lỗi này
+        except ValueError as ve: 
+            logger.error(f"Business logic ValueError: {str(ve)}", exc_info=False) 
             raise HTTPException(status_code=400, detail=str(ve))
-        except Exception as e: # Bắt tất cả các lỗi không mong muốn khác
+        except Exception as e:  
             logger.critical(f"Unexpected error in scheduling service: {type(e).__name__} - {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal Server Error: An unexpected issue occurred.")
