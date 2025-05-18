@@ -7,7 +7,7 @@ class ClassGroup(Base):
     __tablename__ = 'class_groups'
     
     id = Column(Integer, primary_key=True)
-    group_number = Column(Integer)
+    group_number = Column('groupNumber', Integer)
     semester_id = Column('semesterId', Integer)
     
     schedules = relationship("ClassWeeklySchedule", back_populates="class_group")

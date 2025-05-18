@@ -450,21 +450,22 @@ class ScheduleService:
             occupied_room_intervals_data: List[Tuple[int, int]] = []     # (room_idx, global_slot_idx)
 
             logger.info(f"Processing {len(input_dto.existingSchedules)} existing schedule records for occupied slots...")
+            print(input_dto.existingSchedules)
             for existing_record in input_dto.existingSchedules:
                 try:
-                    record_start_obj = date.fromisoformat(existing_record.startDate)
-                    record_end_obj = date.fromisoformat(existing_record.endDate)
+                    record_start_obj = existing_record.start_date
+                    record_end_obj = existing_record.end_date
                     
-                    occupied_day_name = existing_record.dayOfWeek # Ví dụ "MONDAY"
+                    occupied_day_name = existing_record.day_of_week # Ví dụ "MONDAY"
                     if occupied_day_name not in day_name_to_idx:
                         logger.warning(f"Day '{occupied_day_name}' from existing schedule not in current semester's daysOfWeek. Skipping record: {existing_record.dict()}")
                         continue
 
                     occupied_day_idx_in_week = day_name_to_idx[occupied_day_name] # 0-based index for the day of week
-                    occupied_timeslot_idx = timeslot_id_to_idx.get(existing_record.timeSlotId)
+                    occupied_timeslot_idx = timeslot_id_to_idx.get(existing_record.time_slot_id)
                     
                     if occupied_timeslot_idx is None:
-                        logger.warning(f"TimeSlotId {existing_record.timeSlotId} from existing schedule not found. Skipping record: {existing_record.dict()}")
+                        logger.warning(f"TimeSlotId {existing_record.time_slot_id} from existing schedule not found. Skipping record: {existing_record.dict()}")
                         continue
 
                     current_date_iter = record_start_obj
@@ -490,18 +491,18 @@ class ScheduleService:
 
                             if global_slot_idx_for_occ is not None: # Slot này là một active slot
                                 # Phòng bị chiếm
-                                r_idx_occ = room_id_to_idx.get(existing_record.roomId)
+                                r_idx_occ = room_id_to_idx.get(existing_record.room_id)
                                 if r_idx_occ is not None:
                                     occupied_room_intervals_data.append((r_idx_occ, global_slot_idx_for_occ))
                                 else:
-                                    logger.warning(f"RoomId {existing_record.roomId} from existing schedule not found in current room list.")
+                                    logger.warning(f"RoomId {existing_record.room_id} from existing schedule not found in current room list.")
                                 
                                 # Giảng viên bị chiếm
-                                l_idx_occ = lecturer_id_to_idx.get(existing_record.lecturerId)
+                                l_idx_occ = lecturer_id_to_idx.get(existing_record.lecturer_id)
                                 if l_idx_occ is not None:
                                     occupied_lecturer_intervals_data.append((l_idx_occ, global_slot_idx_for_occ))
                                 else:
-                                    logger.warning(f"LecturerId {existing_record.lecturerId} from existing schedule not found in current lecturer list.")
+                                    logger.warning(f"LecturerId {existing_record.lecturer_id} from existing schedule not found in current lecturer list.")
                         
                         # Chuyển đến ngày tiếp theo để kiểm tra, hoặc nhảy 1 tuần nếu muốn tối ưu hơn
                         # Để đơn giản và chính xác, cứ đi từng ngày rồi kiểm tra ngày trong tuần
@@ -583,7 +584,7 @@ class ScheduleService:
                 # Lấy danh sách index giảng viên tiềm năng cho môn học của nhóm này
                 potential_lect_indices = [lecturer_id_to_idx[l_id] for l_id in course_p.potentialLecturerIds if l_id in lecturer_id_to_idx]
                 if not potential_lect_indices:
-                    raise ValueError(f"No potential lecturers found or mapped for course C{course_p.courseId}.")
+                    raise ValueError(f"No potential lecturers found or mapped for course with ID: {course_p.courseId}.")
                 
                 group.assigned_lecturer_var = model.NewIntVar(0, num_lecturers - 1, f'grp_lect_{group.id_tuple}')
                 model.AddAllowedAssignments([group.assigned_lecturer_var], [(l_idx,) for l_idx in potential_lect_indices])
@@ -760,7 +761,7 @@ class ScheduleService:
                     else: # Không có nhóm nào, tải = 0
                         model.Add(actual_lecturer_loads_vars[l_idx] == 0)
 
-            if "BALANCE_LOAD" in input_dto.objectiveStrategy.upper() and actual_lecturer_loads_vars:
+            if "BALANCE_LOAD" in input_dto.objectiveStrategy.value and actual_lecturer_loads_vars:
                 max_load_var = model.NewIntVar(0, total_sessions_count, 'obj_max_load')
                 min_load_var = model.NewIntVar(0, total_sessions_count, 'obj_min_load')
                 model.AddMaxEquality(max_load_var, actual_lecturer_loads_vars)
@@ -769,7 +770,7 @@ class ScheduleService:
                 model.Add(load_difference_var == max_load_var - min_load_var)
                 objective_terms.append(load_difference_var) # Mục tiêu: minimize sự chênh lệch
 
-            if "EARLY_START" in input_dto.objectiveStrategy.upper():
+            if "EARLY_START" in input_dto.objectiveStrategy.value:
                 # Tạo danh sách các biến start_semester_week_var hợp lệ (không None)
                 # Mặc dù theo logic, tất cả đều nên được khởi tạo.
                 # Đây là một bước kiểm tra an toàn.
@@ -811,8 +812,8 @@ class ScheduleService:
             if objective_terms:
                 # Tính tổng giới hạn trên của các thành phần mục tiêu để giới hạn biến total_objective_var
                 max_possible_objective_value = 0
-                if "BALANCE_LOAD" in input_dto.objectiveStrategy.upper(): max_possible_objective_value += total_sessions_count
-                if "EARLY_START" in input_dto.objectiveStrategy.upper(): max_possible_objective_value += total_calendar_weeks * len(all_scheduling_groups)
+                if "BALANCE_LOAD" in input_dto.objectiveStrategy.value: max_possible_objective_value += total_sessions_count
+                if "EARLY_START" in input_dto.objectiveStrategy.value: max_possible_objective_value += total_calendar_weeks * len(all_scheduling_groups)
                 if max_possible_objective_value == 0: max_possible_objective_value = 1 # Tránh upper bound là 0
 
                 total_objective_var = model.NewIntVar(0, max_possible_objective_value, 'total_objective')
