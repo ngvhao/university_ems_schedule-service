@@ -84,7 +84,7 @@ class ScheduleInputDTO(BaseModel):
     groupSizeTarget: int = Field(default=60, gt=0) 
     maxSessionsPerWeekAllowed: int = Field(default=3, gt=0)
     solverTimeLimitSeconds: Optional[float] = Field(default=SOLVERTIMELIMITSECONDS, gt=0)
-    objectiveStrategy: Optional[str] = EObjectStrategy.BALANCE_LOAD_AND_EARLY_START  
+    objectiveStrategy: Optional[str] = EObjectStrategy.BALANCE_LOAD_AND_EARLY_START.value  
     
 
     @field_validator('semesterStartDate', 'semesterEndDate', 'exceptionDates', mode='before')
@@ -134,6 +134,7 @@ class WeeklyScheduleDetailDTO(BaseModel):
     dayOfWeek: str 
     timeSlotId: int 
     roomId: int  
+    scheduledDates: List[str] 
 
 class ClassGroupScheduledDTO(BaseModel): 
     groupNumber: int
@@ -433,6 +434,9 @@ class ScheduleService:
                         active_slot_details_list.append((smw_idx_for_date, d_idx_for_date, sh_idx))
             
             active_slot_details_list.sort() # Sắp xếp để global_slot_idx có thứ tự
+            swk_day_to_date_map: Dict[Tuple[int, int], date] = {
+                v: k for k, v in date_to_swk_day_map.items()
+            }
 
             for idx, details in enumerate(active_slot_details_list):
                 global_slot_to_details[idx] = details
@@ -458,14 +462,14 @@ class ScheduleService:
                     
                     occupied_day_name = existing_record.day_of_week # Ví dụ "MONDAY"
                     if occupied_day_name not in day_name_to_idx:
-                        logger.warning(f"Day '{occupied_day_name}' from existing schedule not in current semester's daysOfWeek. Skipping record: {existing_record.dict()}")
+                        logger.warning(f"Day '{occupied_day_name}' from existing schedule not in current semester's daysOfWeek. Skipping record: {existing_record}")
                         continue
 
                     occupied_day_idx_in_week = day_name_to_idx[occupied_day_name] # 0-based index for the day of week
                     occupied_timeslot_idx = timeslot_id_to_idx.get(existing_record.time_slot_id)
                     
                     if occupied_timeslot_idx is None:
-                        logger.warning(f"TimeSlotId {existing_record.time_slot_id} from existing schedule not found. Skipping record: {existing_record.dict()}")
+                        logger.warning(f"TimeSlotId {existing_record.time_slot_id} from existing schedule not found. Skipping record: {existing_record}")
                         continue
 
                     current_date_iter = record_start_obj
@@ -509,9 +513,9 @@ class ScheduleService:
                         current_date_iter += timedelta(days=1)
 
                 except ValueError as ve_date:
-                    logger.warning(f"Date parsing error for existing schedule record: {ve_date}. Skipping: {existing_record.dict()}")
+                    logger.warning(f"Date parsing error for existing schedule record: {ve_date}. Skipping: {existing_record}")
                 except Exception as e_rec:
-                    logger.error(f"Unexpected error processing existing schedule record: {e_rec}. Record: {existing_record.dict()}", exc_info=True)
+                    logger.error(f"Unexpected error processing existing schedule record: {e_rec}. Record: {existing_record}", exc_info=True)
 
             logger.info(f"After processing existingSchedules: {len(occupied_room_intervals_data)} occupied room slots and "
                         f"{len(occupied_lecturer_intervals_data)} occupied lecturer slots for NoOverlap.")
@@ -761,7 +765,7 @@ class ScheduleService:
                     else: # Không có nhóm nào, tải = 0
                         model.Add(actual_lecturer_loads_vars[l_idx] == 0)
 
-            if "BALANCE_LOAD" in input_dto.objectiveStrategy.value and actual_lecturer_loads_vars:
+            if "BALANCE_LOAD" in input_dto.objectiveStrategy and actual_lecturer_loads_vars:
                 max_load_var = model.NewIntVar(0, total_sessions_count, 'obj_max_load')
                 min_load_var = model.NewIntVar(0, total_sessions_count, 'obj_min_load')
                 model.AddMaxEquality(max_load_var, actual_lecturer_loads_vars)
@@ -770,7 +774,7 @@ class ScheduleService:
                 model.Add(load_difference_var == max_load_var - min_load_var)
                 objective_terms.append(load_difference_var) # Mục tiêu: minimize sự chênh lệch
 
-            if "EARLY_START" in input_dto.objectiveStrategy.value:
+            if "EARLY_START" in input_dto.objectiveStrategy:
                 # Tạo danh sách các biến start_semester_week_var hợp lệ (không None)
                 # Mặc dù theo logic, tất cả đều nên được khởi tạo.
                 # Đây là một bước kiểm tra an toàn.
@@ -812,8 +816,8 @@ class ScheduleService:
             if objective_terms:
                 # Tính tổng giới hạn trên của các thành phần mục tiêu để giới hạn biến total_objective_var
                 max_possible_objective_value = 0
-                if "BALANCE_LOAD" in input_dto.objectiveStrategy.value: max_possible_objective_value += total_sessions_count
-                if "EARLY_START" in input_dto.objectiveStrategy.value: max_possible_objective_value += total_calendar_weeks * len(all_scheduling_groups)
+                if "BALANCE_LOAD" in input_dto.objectiveStrategy: max_possible_objective_value += total_sessions_count
+                if "EARLY_START" in input_dto.objectiveStrategy: max_possible_objective_value += total_calendar_weeks * len(all_scheduling_groups)
                 if max_possible_objective_value == 0: max_possible_objective_value = 1 # Tránh upper bound là 0
 
                 total_objective_var = model.NewIntVar(0, max_possible_objective_value, 'total_objective')
@@ -878,28 +882,52 @@ class ScheduleService:
                             assigned_lect_id = lecturer_idx_to_id[assigned_lect_idx]
                             start_sem_week_val_0based = solver.Value(group.start_semester_week_var)
                             
-                            group_actual_start_date_obj = semester_start_date_obj + timedelta(weeks=start_sem_week_val_0based)
-                            last_course_week_for_group_0based = start_sem_week_val_0based + group.course_props.totalCourseWeeks - 1
-                            temp_end_date_last_week = semester_start_date_obj + timedelta(weeks=last_course_week_for_group_0based)
-                            group_actual_end_date_obj = temp_end_date_last_week + timedelta(days=(6 - temp_end_date_last_week.weekday()))
-
                             weekly_details_for_this_group: List[WeeklyScheduleDetailDTO] = []
+                            all_scheduled_dates_in_group = [] # List tạm để tìm ngày bắt đầu/kết thúc tổng thể
+
+                            # Lặp qua từng buổi học cố định hàng tuần của nhóm
                             for i_sess_wk_0based in range(group.course_props.sessionsPerWeek):
+                                # Lấy các giá trị đã giải cho buổi học này
                                 day_idx_val = solver.Value(group.fixed_weekly_day_vars[i_sess_wk_0based])
                                 shift_idx_val = solver.Value(group.fixed_weekly_shift_vars[i_sess_wk_0based])
                                 room_idx_val = solver.Value(group.fixed_weekly_room_vars[i_sess_wk_0based])
+
+                                # *** LOGIC MỚI: TẠO DANH SÁCH NGÀY CHO TỪNG BUỔI HỌC CỐ ĐỊNH ***
+                                dates_for_this_specific_schedule = []
+                                for week_offset in range(group.course_props.totalCourseWeeks):
+                                    current_semester_week_idx = start_sem_week_val_0based + week_offset
+                                    
+                                    # Sử dụng map ngược để tra cứu ngày cụ thể
+                                    date_key = (current_semester_week_idx, day_idx_val)
+                                    actual_date = swk_day_to_date_map.get(date_key)
+                                    
+                                    if actual_date:
+                                        date_str = actual_date.strftime("%Y-%m-%d")
+                                        dates_for_this_specific_schedule.append(date_str)
+                                        all_scheduled_dates_in_group.append(date_str) # Thêm vào list tổng
+                                    else:
+                                        logger.warning(f"Could not find a date for (smw_idx={current_semester_week_idx}, day_idx={day_idx_val}) for group {group.id_tuple}")
+                                
+                                # Sắp xếp danh sách ngày cho buổi học này
+                                dates_for_this_specific_schedule.sort()
+                                
+                                # Tạo DTO chi tiết và thêm vào list
                                 weekly_details_for_this_group.append(WeeklyScheduleDetailDTO(
                                     dayOfWeek=day_idx_to_name[day_idx_val],
                                     timeSlotId=timeslot_idx_to_id[shift_idx_val],
-                                    roomId=room_idx_to_id[room_idx_val]
+                                    roomId=room_idx_to_id[room_idx_val],
+                                    scheduledDates=dates_for_this_specific_schedule # <-- Điền dữ liệu vào đây
                                 ))
-                            
+
+                            # Sắp xếp lại list tổng để tìm ngày đầu/cuối chính xác
+                            all_scheduled_dates_in_group.sort()
+
                             class_group_dto = ClassGroupScheduledDTO(
                                 groupNumber=group.id_tuple[2],
-                                maxStudents=input_dto.groupSizeTarget, # Sử dụng groupSizeTarget làm maxStudents
+                                maxStudents=group.actual_students_in_group,
                                 lecturerId=assigned_lect_id,
-                                groupStartDate=group_actual_start_date_obj.strftime("%Y-%m-%d"),
-                                groupEndDate=group_actual_end_date_obj.strftime("%Y-%m-%d"),
+                                groupStartDate=all_scheduled_dates_in_group[0] if all_scheduled_dates_in_group else "N/A",
+                                groupEndDate=all_scheduled_dates_in_group[-1] if all_scheduled_dates_in_group else "N/A",
                                 totalTeachingWeeksForGroup=group.course_props.totalCourseWeeks,
                                 sessionsPerWeekForGroup=group.course_props.sessionsPerWeek,
                                 weeklyScheduleDetails=weekly_details_for_this_group
