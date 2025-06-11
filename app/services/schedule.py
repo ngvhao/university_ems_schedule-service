@@ -383,14 +383,22 @@ class ScheduleService:
             
             if not all_sessions_to_schedule:
                 logger.info("No sessions to schedule after processing courses and groups.")
-                # Trả về kết quả rỗng
                 duration_s = time.time() - start_time_measurement
+                empty_lecturer_loads = [
+                    LecturerLoadDTO(lecturerId=l.lecturerId, sessionsAssigned=0) 
+                    for l in input_dto.lecturers
+                ]
                 return FinalScheduleResultDTO(
-                    generatedWeeklySchedules=[], lecturerLoad=[],
-                    totalCourseSessionsToSchedule=0, 
-                    totalSemesterWeekSlotsAvailable=num_days_per_week * num_shifts_per_day,
-                    totalActiveSemesterWeeks=total_calendar_weeks, # Sẽ cập nhật sau nếu có ngày nghỉ
-                    duration=duration_s, status="NO_SESSIONS", message="No sessions to schedule."
+                    semesterId=input_dto.semesterId,
+                    semesterStartDate=input_dto.semesterStartDate,
+                    semesterEndDate=input_dto.semesterEndDate,
+                    scheduledCourses=[],  
+                    lecturerLoad=empty_lecturer_loads,  
+                    loadDifference=None,
+                    totalOriginalSessionsToSchedule=0,  
+                    solverDurationSeconds=duration_s,  
+                    solverStatus="NO_SESSIONS_TO_SCHEDULE", 
+                    solverMessage="No sessions to schedule after processing input. All inputs are valid but result in zero scheduling tasks."
                 )
             
             total_sessions_count = len(all_sessions_to_schedule)
