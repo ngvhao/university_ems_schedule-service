@@ -257,9 +257,28 @@ async def make_schedule(body: Annotated[ScheduleInputDTO, Body(...)],
     ):
     service = ScheduleService()
     try:
+        day_name_map_from_iso = {
+            1: "MONDAY", 2: "TUESDAY", 3: "WEDNESDAY", 4: "THURSDAY",
+            5: "FRIDAY", 6: "SATURDAY", 7: "SUNDAY"
+        }
         schedules = await class_weekly_service.get_class_weekly_schedules(body.semesterId, db)
-        body.existingSchedules = schedules
-        print(schedules)
+        processed_schedules = []
+
+        for schedule_obj in schedules:
+            day_number = int(schedule_obj.day_of_week)
+            dto = ExistingScheduleRecord(
+                startDate=str(schedule_obj.start_date),
+                endDate=str(schedule_obj.end_date),
+                dayOfWeek=day_name_map_from_iso.get(day_number), 
+                roomId=schedule_obj.room_id,
+                lecturerId=schedule_obj.lecturer_id,
+                timeSlotId=schedule_obj.time_slot_id
+            )
+            processed_schedules.append(dto)
+
+            logging.info(f"[DEBUG-STEP-1] Processed DTO for existing schedule: {dto}")
+
+        body.existingSchedules = processed_schedules
         result: FinalScheduleResultDTO = await service.calculate_with_cp(body) 
 
         logger.info("Scheduling finished.")
@@ -309,7 +328,10 @@ async def make_schedule(body: Annotated[ScheduleInputDTO, Body(...)],
 
     except HTTPException as he:
         logger.error(f"HTTP Error {he.status_code}: {he.detail}")
-        raise
+        return JSONResponse(
+            status_code=he.status_code,
+            content={"detail": he.detail}
+        )
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return JSONResponse(
