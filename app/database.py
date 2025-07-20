@@ -13,9 +13,9 @@ logger.setLevel(logging.DEBUG)
 
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
-DB_USER_NAME = os.getenv("DB_USER_NAME", "graduation_thesis")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "z9hr8d2uFTvsBqg")
-DB_NAME = os.getenv("DB_NAME", "university_ems_db")
+DB_USER_NAME = os.getenv("DB_USER_NAME")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
 
 ASYNC_DATABASE_URL = f"postgresql+asyncpg://{DB_USER_NAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 

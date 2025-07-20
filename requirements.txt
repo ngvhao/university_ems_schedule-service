@@ -1,11 +1,9 @@
-fastapi
-mangum
-pydantic
-sqlalchemy 
-asyncpg
-databases
-jose
-psycopg2
-jwt
-dotenv
-uvicorn
+fastapi==0.104.1
+mangum==0.17.0
+pydantic==1.10.13
+sqlalchemy==1.4.53
+asyncpg==0.29.0; python_version<"3.13"
+asyncpg==0.30.0; python_version>="3.13"
+PyJWT==2.8.0
+python-dotenv==1.0.0
+uvicorn==0.24.0

@@ -57,7 +57,8 @@ PUBLIC_PATHS = [
     "/redoc",
     "/openapi.json",
     "/testing-db",
-    "/schedules/calculating"
+    "/schedules/calculating",
+    "/health"
 ]
 
 app.add_middleware(AuthMiddleware, public_paths=PUBLIC_PATHS)
@@ -76,5 +77,13 @@ async def root(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error in root endpoint: {str(e)}")
         return {"error": str(e)}
+    
+@app.get("/health")
+async def health_check():
+    try:
+        return {"message": "hello world"}
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database connection failed")
 
 handler = Mangum(app)

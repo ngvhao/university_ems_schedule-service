@@ -1,30 +1,42 @@
-service: university-ems-schedule-service
+service: serverless-classgroup-schedule
 useDotenv: true
 
 provider:
   name: aws
-  runtime: python3.9
+  runtime: python3.11
   region: ap-southeast-1
+  stage: ${env:STAGE, "dev"}
   environment:
-    DEBUG: ${env:DEBUG, 0}
+    DEBUG: ${env:DEBUG, "0"}
     STAGE: ${env:STAGE, "dev"}
     DB_HOST: ${env:DB_HOST}
     DB_PORT: ${env:DB_PORT}
     DB_USER_NAME: ${env:DB_USER_NAME}
     DB_PASSWORD: ${env:DB_PASSWORD}
     DB_NAME: ${env:DB_NAME}
+    JWT_SECRET_KEY: ${env:JWT_SECRET_KEY}
 
 functions:
   api:
     handler: app.main.handler
-    timeout: 900
+    name: ${self:service}-${self:provider.stage}
+    description: "University EMS Schedule Service API"
+    memorySize: 512
+    timeout: 30
     events:
       - http:
           method: ANY
           path: /
+          cors: true
       - http:
           method: ANY
           path: "{proxy+}"
+          cors: true
+    environment:
+      PYTHONPATH: /var/task
+    tags:
+      Service: ${self:service}
+      Environment: ${self:provider.stage}
 
 plugins:
   - serverless-python-requirements
@@ -33,6 +45,24 @@ plugins:
 
 custom:
   pythonRequirements:
-    layer: true
+    dockerizePip: false
+    zip: true
+    slim: true
+    layer:
+      name: python-deps
+      description: Python dependencies for schedule service
+    noDeploy:
+      - coverage
+      - pytest
+      - pytest-cov
+      - black
+      - flake8
+      - mypy
+    usePoetry: false
+    useStaticCache: true
+    useDownloadCache: true
+    cacheLocation: .serverless/cache
   serverless-offline:
     httpPort: 3000
+    lambdaPort: 3002
+    noPrependStageInUrl: true

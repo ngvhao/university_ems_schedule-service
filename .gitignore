@@ -5,23 +5,44 @@ __pycache__/
 
 # Environment variables
 .env
-.env.*
+.env.local
+.env.*.local
 
 # Virtual environment
 venv/
 .venv/
+.requirements.zip
+node_modules/
 
 # Serverless and deployment
 .serverless/
 .aws-sam/
+*.zip
 
 # Local development
 *.log
 *.sqlite3
+app.log
 
-# VSCode
+# IDE and editor files
 .vscode/
+.idea/
+*.swp
+*.swo
 
 # macOS / Linux / Windows system files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Python cache and build
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.temp

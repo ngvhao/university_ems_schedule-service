@@ -1,0 +1,26 @@
+{
+  "name": "university-ems-schedule-service",
+  "version": "1.0.0",
+  "description": "University EMS Schedule Service - Serverless Lambda",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "serverless deploy",
+    "deploy:prod": "serverless deploy --stage prod",
+    "remove": "serverless remove",
+    "offline": "serverless offline"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-offline": "^13.9.0",
+    "serverless-python-requirements": "^6.1.2"
+  },
+  "keywords": [
+    "serverless",
+    "lambda",
+    "fastapi",
+    "python"
+  ],
+  "author": "",
+  "license": "ISC"
+}
