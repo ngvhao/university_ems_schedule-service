@@ -21,7 +21,7 @@ functions:
     handler: app.main.handler
     name: ${self:service}-${self:provider.stage}
     description: "University EMS Schedule Service API"
-    memorySize: 512
+    memorySize: 1024
     timeout: 30
     events:
       - http:
@@ -37,6 +37,8 @@ functions:
     tags:
       Service: ${self:service}
       Environment: ${self:provider.stage}
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
 
 plugins:
   - serverless-python-requirements
@@ -44,13 +46,16 @@ plugins:
   - serverless-dotenv-plugin
 
 custom:
+  dotenv:
+    exclude:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      
   pythonRequirements:
-    dockerizePip: false
+    dockerizePip: true
     zip: true
     slim: true
-    layer:
-      name: python-deps
-      description: Python dependencies for schedule service
     noDeploy:
       - coverage
       - pytest
@@ -62,6 +67,11 @@ custom:
     useStaticCache: true
     useDownloadCache: true
     cacheLocation: .serverless/cache
+    layer:
+      name: ortools-layer
+      description: OR-Tools and NumPy layer
+      compatibleRuntimes:
+        - python3.11
   serverless-offline:
     httpPort: 3000
     lambdaPort: 3002

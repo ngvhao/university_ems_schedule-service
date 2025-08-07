@@ -9,8 +9,6 @@ from app.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
-from app.services.class_weekly_schedule import ClassWeeklyScheduleService
-
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -56,7 +54,6 @@ PUBLIC_PATHS = [
     "/docs",
     "/redoc",
     "/openapi.json",
-    "/testing-db",
     "/schedules/calculating",
     "/health"
 ]
@@ -64,26 +61,17 @@ PUBLIC_PATHS = [
 app.add_middleware(AuthMiddleware, public_paths=PUBLIC_PATHS)
 
 app.include_router(schedule.router)
-
-@app.get("/testing-db")
-async def root(db: AsyncSession = Depends(get_db)):
-    try:
-        result = await db.execute(text("SELECT 1"))
-        # value = result.scalar()  
-        logger.debug("Successfully tested database connection")
-        result_2 = await ClassWeeklyScheduleService.getClassWeeklySchedule(1, db)
-        print(result_2)
-        return {"message": "Welcome to the API", "db_test": result_2}
-    except Exception as e:
-        logger.error(f"Error in root endpoint: {str(e)}")
-        return {"error": str(e)}
     
 @app.get("/health")
-async def health_check():
+async def health_check(db: AsyncSession = Depends(get_db)):
     try:
-        return {"message": "hello world"}
+        logger.debug("Health check endpoint called")
+        result = await db.execute(text("SELECT 1"))
+        value = result.scalar()
+        logger.debug("Successfully tested database connection")
+        return {"message": "Welcome to the API", "db_test": value}
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Database connection failed")
+        logger.error(f"Error in health check endpoint: {str(e)}")
+        return {"error": str(e)}
 
 handler = Mangum(app)

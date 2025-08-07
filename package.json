@@ -6,6 +6,7 @@
   "scripts": {
     "deploy": "serverless deploy",
     "deploy:prod": "serverless deploy --stage prod",
+    "deploy:dev": "serverless deploy --stage dev",
     "remove": "serverless remove",
     "offline": "serverless offline"
   },

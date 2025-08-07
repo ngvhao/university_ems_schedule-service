@@ -1,42 +1,45 @@
-from typing import List, Dict, Any
-from databases import Database
+from typing import List
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from fastapi import HTTPException
 
 from app.models.user import User
 
 class UserService:
     @staticmethod
-    async def get_user_by_id(user_id: int, db: Database) -> User:
+    async def get_user_by_id(user_id: int, db: AsyncSession) -> User:
         """
         Retrieve a user by their ID.
 
         Args:
             user_id (int): The ID of the user to retrieve.
-            db (Database): The database connection.
+            db (AsyncSession): The database session.
 
         Returns:
-            Dict[str, Any]: The user data.
+            User: The user data.
 
         Raises:
             HTTPException: If the user is not found.
         """
-        query = "SELECT * FROM users WHERE id = :id"
-        user = await db.fetch_one(query, values={"id": user_id})
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        return dict(user)
+        return user
 
     @staticmethod
-    async def get_all_users(db: Database) -> List[User]:
+    async def get_all_users(db: AsyncSession) -> List[User]:
         """
         Retrieve all users from the database.
 
         Args:
-            db (Database): The database connection.
+            db (AsyncSession): The database session.
 
         Returns:
-            List[Dict[str, Any]]: List of user data.
+            List[User]: List of user data.
         """
-        query = "SELECT * FROM users"
-        users = await db.fetch_all(query)
-        return [dict(user) for user in users]
+        stmt = select(User)
+        result = await db.execute(stmt)
+        users = result.scalars().all()
+        return users
